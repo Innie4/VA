@@ -60,5 +60,9 @@
     "errorSendingMessage": "发送消息时出错。请重试。",
     "connectionLost": "连接丢失。正在尝试重新连接...",
     "welcomeMessage": "您好！我是您的虚拟助手。今天我可以为您做些什么？"
+  },
+  "errors": {
+    "connectionLost": "连接丢失",
+    "connectionLostDescription": "无法连接到服务器。请检查您的网络连接并重试。"
   }
 }

@@ -60,5 +60,9 @@
     "errorSendingMessage": "Fehler beim Senden der Nachricht. Bitte versuchen Sie es erneut.",
     "connectionLost": "Verbindung verloren. Versuche wieder zu verbinden...",
     "welcomeMessage": "Hallo! Ich bin Ihr virtueller Assistent. Wie kann ich Ihnen heute helfen?"
+  },
+  "errors": {
+    "connectionLost": "Verbindung verloren",
+    "connectionLostDescription": "Verbindung zum Server nicht möglich. Bitte überprüfen Sie Ihre Internetverbindung und versuchen Sie es erneut."
   }
 }

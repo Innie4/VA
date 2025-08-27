@@ -248,25 +248,25 @@ export const useSocketConnection = (
     }
   }, []);
 
-  // Auto-connect on mount
+  // Auto-connect on mount (allow both authenticated and anonymous connections)
   useEffect(() => {
-    if (autoConnect && isAuthenticated) {
+    if (autoConnect) {
       connect();
     }
 
     return () => {
       disconnect();
     };
-  }, [autoConnect, isAuthenticated, connect, disconnect]);
+  }, [autoConnect, connect, disconnect]);
 
-  // Reconnect when authentication changes
+  // Reconnect when authentication changes (but keep connection for anonymous users)
   useEffect(() => {
-    if (isAuthenticated && socketRef.current && !socketRef.current.connected) {
+    if (socketRef.current && !socketRef.current.connected) {
       connect();
-    } else if (!isAuthenticated && socketRef.current?.connected) {
-      disconnect();
     }
-  }, [isAuthenticated, connect, disconnect]);
+    // Note: We no longer disconnect when user becomes unauthenticated
+    // This allows anonymous/guest users to maintain their connection
+  }, [isAuthenticated, connect]);
 
   // Cleanup on unmount
   useEffect(() => {

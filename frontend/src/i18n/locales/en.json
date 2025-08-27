@@ -135,7 +135,9 @@
     "fileUploadFailed": "File upload failed. Please try again.",
     "voiceRecognitionFailed": "Voice recognition failed. Please try again.",
     "microphonePermissionDenied": "Microphone permission denied. Please enable microphone access in your browser settings.",
-    "speechSynthesisNotSupported": "Speech synthesis is not supported in your browser."
+    "speechSynthesisNotSupported": "Speech synthesis is not supported in your browser.",
+    "connectionLost": "Connection lost",
+    "connectionLostDescription": "Unable to connect to the server. Please check your internet connection and try again."
   },
   "accessibility": {
     "skipToMain": "Skip to main content",

@@ -10,6 +10,7 @@ import { createRateLimiter } from '../middleware/rateLimiter';
 import chatHandlers from './chatHandlers';
 import typingHandlers from './typingHandlers';
 import presenceHandlers from './presenceHandlers';
+import guestChatHandlers from './guestChatHandlers';
 
 interface AuthenticatedSocket extends Socket {
   userId?: string;
@@ -21,6 +22,7 @@ interface AuthenticatedSocket extends Socket {
     tier: string;
     role: string;
   };
+  isGuest?: boolean;
 }
 
 // Socket.IO rate limiter
@@ -45,16 +47,22 @@ export function initializeSocket(server: HTTPServer): SocketIOServer {
     allowEIO3: true,
   });
 
-  // Middleware for authentication
+  // Middleware for optional authentication
   io.use(async (socket: AuthenticatedSocket, next) => {
     try {
       const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.replace('Bearer ', '');
       
       if (!token) {
-        return next(new Error('Authentication token required'));
+        // Allow anonymous/guest connections
+        socket.isGuest = true;
+        logger.info('Guest socket connection', {
+          socketId: socket.id,
+          ip: socket.handshake.address,
+        });
+        return next();
       }
 
-      // Verify JWT token
+      // Verify JWT token for authenticated users
       const decoded = jwt.verify(token, config.jwt.accessSecret) as any;
       
       // Get user from database
@@ -73,14 +81,26 @@ export function initializeSocket(server: HTTPServer): SocketIOServer {
       });
 
       if (!user) {
-        return next(new Error('User not found or inactive'));
+        // If token is invalid, allow as guest instead of rejecting
+        socket.isGuest = true;
+        logger.warn('Invalid token provided, allowing as guest', {
+          socketId: socket.id,
+          ip: socket.handshake.address,
+        });
+        return next();
       }
 
       // Check if session is valid (skip Redis check in development if Redis is not available)
       try {
         const session = await redis.getSession(decoded.sessionId);
         if (!session) {
-          return next(new Error('Invalid session'));
+          // If session is invalid, allow as guest instead of rejecting
+          socket.isGuest = true;
+          logger.warn('Invalid session, allowing as guest', {
+            socketId: socket.id,
+            ip: socket.handshake.address,
+          });
+          return next();
         }
       } catch (error) {
         logger.warn('Redis session check failed, continuing without session validation', {
@@ -89,7 +109,7 @@ export function initializeSocket(server: HTTPServer): SocketIOServer {
         // Continue without Redis session validation in development
       }
 
-      // Attach user to socket
+      // Attach user to socket for authenticated connections
       socket.userId = user.id;
       socket.user = {
         id: user.id,
@@ -99,6 +119,7 @@ export function initializeSocket(server: HTTPServer): SocketIOServer {
         tier: user.tier,
         role: user.role.name,
       };
+      socket.isGuest = false;
 
       logger.info('Socket authenticated', {
         socketId: socket.id,
@@ -109,67 +130,88 @@ export function initializeSocket(server: HTTPServer): SocketIOServer {
 
       next();
     } catch (error) {
-      logger.error('Socket authentication failed', {
+      // If any error occurs during authentication, allow as guest
+      socket.isGuest = true;
+      logger.warn('Socket authentication failed, allowing as guest', {
         error: error instanceof Error ? error.message : 'Unknown error',
         socketId: socket.id,
         ip: socket.handshake.address,
       });
-      next(new Error('Authentication failed'));
+      next();
     }
   });
 
   // Connection handler
   io.on('connection', async (socket: AuthenticatedSocket) => {
-    const userId = socket.userId!;
-    const user = socket.user!;
+    if (socket.isGuest) {
+      // Handle guest connections
+      logger.info('Guest connected via WebSocket', {
+        socketId: socket.id,
+        ip: socket.handshake.address,
+      });
 
-    logger.info('User connected via WebSocket', {
-      socketId: socket.id,
-      userId,
-      email: user.email,
-      ip: socket.handshake.address,
-    });
+      // Join guest to a general guest room
+      await socket.join('guests');
+    } else {
+      // Handle authenticated user connections
+      const userId = socket.userId!;
+      const user = socket.user!;
 
-    // Join user to their personal room
-    await socket.join(`user:${userId}`);
-
-    // Update user's online status
-    try {
-      await redis.setUserOnline(userId, socket.id);
-    } catch (error) {
-      logger.warn('Failed to set user online status in Redis', {
-        error: error instanceof Error ? error.message : 'Unknown error',
+      logger.info('User connected via WebSocket', {
+        socketId: socket.id,
         userId,
+        email: user.email,
+        ip: socket.handshake.address,
+      });
+
+      // Join user to their personal room
+      await socket.join(`user:${userId}`);
+
+      // Update user's online status
+      try {
+        await redis.setUserOnline(userId, socket.id);
+      } catch (error) {
+        logger.warn('Failed to set user online status in Redis', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          userId,
+        });
+      }
+
+      // Update last active timestamp
+      await db.getClient().user.update({
+        where: { id: userId },
+        data: { lastActiveAt: new Date() },
       });
     }
 
-    // Update last active timestamp
-    await db.getClient().user.update({
-      where: { id: userId },
-      data: { lastActiveAt: new Date() },
-    });
-
-    // Register event handlers
-    chatHandlers(io, socket as AuthenticatedSocket);
-    typingHandlers(io, socket as AuthenticatedSocket);
-    presenceHandlers(io, socket as AuthenticatedSocket);
+    // Register event handlers based on user type
+    if (!socket.isGuest) {
+      // Authenticated user handlers
+      chatHandlers(io, socket as AuthenticatedSocket);
+      typingHandlers(io, socket as AuthenticatedSocket);
+      presenceHandlers(io, socket as AuthenticatedSocket);
+    } else {
+      // Guest user handlers
+      guestChatHandlers(io, socket);
+    }
 
     // Handle rate limiting for all events (skip if Redis is not available)
     socket.use(async (packet, next) => {
       try {
         // Apply rate limiting
-        const key = `socket_rate_limit:${userId}`;
-        const current = await redis.incr(key);
+        const rateLimitKey = socket.isGuest ? `socket_rate_limit:guest:${socket.id}` : `socket_rate_limit:${socket.userId}`;
+        const current = await redis.incr(rateLimitKey);
         
         if (current === 1) {
-          await redis.expire(key, 60); // 1 minute window
+          await redis.expire(rateLimitKey, 60); // 1 minute window
         }
         
         if (current > 100) { // 100 events per minute
           logger.warn('Socket rate limit exceeded', {
-            userId,
+            userId: socket.userId || 'guest',
             socketId: socket.id,
             eventCount: current,
+            isGuest: socket.isGuest,
           });
           return next(new Error('Rate limit exceeded'));
         }
@@ -178,8 +220,9 @@ export function initializeSocket(server: HTTPServer): SocketIOServer {
       } catch (error) {
         logger.warn('Socket rate limiting failed, continuing without rate limiting', {
           error: error instanceof Error ? error.message : 'Unknown error',
-          userId,
+          userId: socket.userId || 'guest',
           socketId: socket.id,
+          isGuest: socket.isGuest,
         });
         next(); // Continue without rate limiting if Redis is not available
       }
@@ -190,51 +233,70 @@ export function initializeSocket(server: HTTPServer): SocketIOServer {
       logger.error('Socket error', {
         error: error.message,
         socketId: socket.id,
-        userId,
+        userId: socket.userId || 'guest',
+        isGuest: socket.isGuest,
         ip: socket.handshake.address,
       });
     });
 
     // Handle disconnection
     socket.on('disconnect', async (reason) => {
-      logger.info('User disconnected from WebSocket', {
-        socketId: socket.id,
-        userId,
-        email: user.email,
-        reason,
-        ip: socket.handshake.address,
-      });
+      if (socket.isGuest) {
+        logger.info('Guest disconnected from WebSocket', {
+          socketId: socket.id,
+          reason,
+          ip: socket.handshake.address,
+        });
+      } else {
+        const userId = socket.userId!;
+        const user = socket.user!;
+        
+        logger.info('User disconnected from WebSocket', {
+          socketId: socket.id,
+          userId,
+          email: user.email,
+          reason,
+          ip: socket.handshake.address,
+        });
 
-      try {
-        // Remove user from online status
         try {
-          await redis.setUserOffline(userId);
-        } catch (redisError) {
-          logger.warn('Failed to set user offline status in Redis', {
-            error: redisError instanceof Error ? redisError.message : 'Unknown error',
+          // Remove user from online status
+          try {
+            await redis.setUserOffline(userId);
+          } catch (redisError) {
+            logger.warn('Failed to set user offline status in Redis', {
+              error: redisError instanceof Error ? redisError.message : 'Unknown error',
+              userId,
+            });
+          }
+
+          // Leave all rooms
+          socket.rooms.forEach(room => {
+            if (room !== socket.id) {
+              socket.leave(room);
+            }
+          });
+
+          // Update last active timestamp
+          await db.getClient().user.update({
+            where: { id: userId },
+            data: { lastActiveAt: new Date() },
+          });
+        } catch (error) {
+          logger.error('Error handling socket disconnection', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            socketId: socket.id,
             userId,
           });
         }
-
-        // Leave all rooms
-        socket.rooms.forEach(room => {
-          if (room !== socket.id) {
-            socket.leave(room);
-          }
-        });
-
-        // Update last active timestamp
-        await db.getClient().user.update({
-          where: { id: userId },
-          data: { lastActiveAt: new Date() },
-        });
-      } catch (error) {
-        logger.error('Error handling socket disconnection', {
-          error: error instanceof Error ? error.message : 'Unknown error',
-          socketId: socket.id,
-          userId,
-        });
       }
+
+      // Leave all rooms for both guests and users
+      socket.rooms.forEach(room => {
+        if (room !== socket.id) {
+          socket.leave(room);
+        }
+      });
     });
 
     // Ping/pong for connection health
@@ -245,7 +307,8 @@ export function initializeSocket(server: HTTPServer): SocketIOServer {
     // Send welcome message
     socket.emit('connected', {
       message: 'Connected to chat server',
-      userId,
+      userId: socket.userId || null,
+      isGuest: socket.isGuest || false,
       socketId: socket.id,
       timestamp: new Date().toISOString(),
     });
