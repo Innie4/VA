@@ -1,0 +1,416 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// User model
+model User {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  password          String
+  firstName         String
+  lastName          String
+  avatar            String?
+  bio               String?
+  isActive          Boolean  @default(true)
+  isEmailVerified   Boolean  @default(false)
+  emailVerifiedAt   DateTime?
+  timezone          String?  // Add this field
+  language          String?  // Add this field
+  tier              String   @default("basic") // basic, pro, premium
+  lastLoginAt       DateTime?
+  lastActiveAt      DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  roleId            String
+  role              Role     @relation(fields: [roleId], references: [id])
+  
+  // User preferences
+  preferences       UserPreferences?
+  statistics        UserStatistics?   // Add this relation
+  
+  // Conversations
+  conversations     Conversation[]
+  messages          Message[]
+  
+  // Files
+  files             File[]
+  
+  // Sessions
+  sessions          Session[]
+  
+  // Password reset tokens
+  passwordResets    PasswordReset[]
+  
+  // Email verification tokens
+  emailVerifications EmailVerification[]
+  
+  // API keys
+  apiKeys           ApiKey[]
+  
+  // Audit logs
+  auditLogs         AuditLog[]
+  
+  // Notifications
+  notifications     Notification[]
+  
+  // Webhooks
+  webhooks          Webhook[]
+
+  @@map("users")
+}
+
+// Role model
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  permissions String   // Comma-separated permission strings
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users       User[]
+
+  @@map("roles")
+}
+
+// User preferences model
+model UserPreferences {
+  id                    String   @id @default(cuid())
+  theme                 String   @default("light") // light, dark, auto
+  language              String   @default("en")
+  timezone              String   @default("UTC")
+  dateFormat            String   @default("MM/dd/yyyy")
+  timeFormat            String   @default("12h")
+  
+  // Notification preferences
+  emailNotifications    Boolean  @default(true)
+  pushNotifications     Boolean  @default(true)
+  smsNotifications      Boolean  @default(false)
+  desktopNotifications  Boolean  @default(true)  // Add this field
+  
+  // Chat preferences
+  autoSave              Boolean  @default(true)
+  showTypingIndicator   Boolean  @default(true)
+  soundEnabled          Boolean  @default(true)
+  
+  // AI preferences
+  defaultModel          String   @default("gpt-3.5-turbo")
+  defaultTemperature    Float    @default(0.7)
+  defaultMaxTokens      Int      @default(2000)
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Relations
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+// User statistics model
+model UserStatistics {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  totalMessages   Int      @default(0)
+  totalFiles      Int      @default(0)
+  lastActiveAt    DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_statistics")
+}
+
+// Conversation model
+model Conversation {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  isPublic    Boolean  @default(false)
+  isArchived  Boolean  @default(false)
+  tags        String?  // Comma-separated tag strings
+  metadata    String?  // Additional metadata as JSON string
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages    Message[]
+
+  @@map("conversations")
+}
+
+// Message model
+model Message {
+  id             String   @id @default(cuid())
+  content        String
+  type           String   @default("text") // text, image, file, system
+  role           String   // user, assistant, system
+  isEdited       Boolean  @default(false)
+  editedAt       DateTime?
+  metadata       String?  // Model settings, file info, etc. as JSON string
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  // Parent message for threading
+  parentId       String?
+  parent         Message? @relation("MessageThread", fields: [parentId], references: [id])
+  replies        Message[] @relation("MessageThread")
+  
+  // File attachments
+  files          MessageFile[]
+
+  @@map("messages")
+}
+
+// File model
+model File {
+  id            String   @id @default(cuid())
+  filename      String
+  originalName  String
+  mimeType      String
+  size          Int
+  path          String
+  url           String?
+  purpose       String   @default("general") // avatar, attachment, document, general
+  isPublic      Boolean  @default(false)
+  metadata      String?  // Additional file metadata as JSON string
+  downloadCount Int      @default(0)  // Add this field
+  description   String?  // Add this field
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Message attachments
+  messageFiles  MessageFile[]
+
+  @@map("files")
+}
+
+// Message-File junction table
+model MessageFile {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  // Relations
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  
+  fileId    String
+  file      File    @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, fileId])
+  @@map("message_files")
+}
+
+// Session model for authentication
+model Session {
+  id             String   @id @default(cuid())
+  sessionToken   String   @unique
+  refreshToken   String   @unique
+  deviceInfo     String?  // Browser, OS, etc. as JSON string
+  ipAddress      String?
+  userAgent      String?
+  isActive       Boolean  @default(true)
+  expiresAt      DateTime
+  lastAccessedAt DateTime @default(now())  // Add this field
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// Password reset model
+model PasswordReset {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  // Relations
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_resets")
+}
+
+// Email verification model
+model EmailVerification {
+  id        String   @id @default(cuid())
+  userId    String
+  email     String   // Add this field
+  token     String   @unique
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_verifications")
+}
+
+// API Key model
+model ApiKey {
+  id          String   @id @default(cuid())
+  name        String
+  key         String   @unique
+  permissions String   // Comma-separated permission strings
+  isActive    Boolean  @default(true)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+// Audit log model
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String   // CREATE, UPDATE, DELETE, LOGIN, etc.
+  resource    String   // user, conversation, message, etc.
+  resourceId  String?  // Change from String to String? to allow null
+  oldValues   String?
+  newValues   String?
+  ipAddress   String?
+  userAgent   String?
+  metadata    String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// System settings model
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+// Rate limit model
+model RateLimit {
+  id          String   @id @default(cuid())
+  identifier  String   // IP address, user ID, etc.
+  action      String   // login, api_call, message_send, etc.
+  count       Int      @default(1)
+  windowStart DateTime
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([identifier, action, windowStart])
+  @@map("rate_limits")
+}
+
+// Notification model
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   // email, push, sms
+  title     String
+  message   String
+  data      String?  // Additional notification data as JSON string
+  isRead    Boolean  @default(false)
+  readAt    DateTime?
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+// Analytics model
+model Analytics {
+  id          String   @id @default(cuid())
+  event       String   // page_view, message_sent, user_registered, etc.
+  properties  String?  // Event properties as JSON string
+  userId      String?
+  sessionId   String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@map("analytics")
+}
+
+// Feature flag model
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isEnabled   Boolean  @default(false)
+  rules       String?  // Targeting rules as JSON string
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("feature_flags")
+}
+
+// Webhook model
+model Webhook {
+  id          String   @id @default(cuid())
+  url         String
+  events      String   // Comma-separated event types to listen for
+  secret      String?
+  isActive    Boolean  @default(true)
+  lastTriggeredAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("webhooks")
+}

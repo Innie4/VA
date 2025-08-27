@@ -1,0 +1,77 @@
+{
+  "name": "va-chat",
+  "version": "1.0.0",
+  "description": "AI-powered conversational assistant with React frontend and Node.js backend",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "install:all": "npm install && npm install --workspace=frontend && npm install --workspace=backend",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev:backend": "npm run dev --workspace=backend",
+    "build": "npm run build --workspace=frontend && npm run build --workspace=backend",
+    "build:frontend": "npm run build --workspace=frontend",
+    "build:backend": "npm run build --workspace=backend",
+    "start": "npm run start --workspace=backend",
+    "start:prod": "npm run start:prod --workspace=backend",
+    "test": "npm run test --workspace=frontend && npm run test --workspace=backend",
+    "test:frontend": "npm run test --workspace=frontend",
+    "test:backend": "npm run test --workspace=backend",
+    "lint": "npm run lint --workspace=frontend && npm run lint --workspace=backend",
+    "lint:frontend": "npm run lint --workspace=frontend",
+    "lint:backend": "npm run lint --workspace=backend",
+    "lint:fix": "npm run lint:fix --workspace=frontend && npm run lint:fix --workspace=backend",
+    "db:migrate": "npm run db:migrate --workspace=backend",
+    "db:migrate:prod": "npm run db:migrate:prod --workspace=backend",
+    "db:seed": "npm run db:seed --workspace=backend",
+    "db:seed:prod": "npm run db:seed:prod --workspace=backend",
+    "db:reset": "npm run db:reset --workspace=backend",
+    "db:studio": "npm run db:studio --workspace=backend",
+    "db:generate": "npm run db:generate --workspace=backend",
+    "docker:build": "docker build -t va-chat .",
+    "docker:run": "docker run -p 3001:3001 va-chat",
+    "docker:dev": "docker-compose up -d",
+    "docker:prod": "docker-compose --profile production up -d",
+    "docker:stop": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "setup": "npm run install:all && npm run db:migrate && npm run db:seed",
+    "setup:prod": "npm run install:all && npm run build && npm run db:migrate:prod && npm run db:seed:prod",
+    "health": "curl -f http://localhost:3001/api/health || exit 1",
+    "clean": "npm run clean --workspace=frontend && npm run clean --workspace=backend"
+  },
+  "keywords": [
+    "ai",
+    "chat",
+    "openai",
+    "gpt-4",
+    "react",
+    "nodejs",
+    "typescript",
+    "websocket",
+    "material-ui",
+    "prisma",
+    "postgresql",
+    "redis",
+    "docker"
+  ],
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/va-chat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/va-chat/issues"
+  },
+  "homepage": "https://github.com/your-username/va-chat#readme",
+  "author": "VA Chat Team",
+  "license": "MIT"
+}
